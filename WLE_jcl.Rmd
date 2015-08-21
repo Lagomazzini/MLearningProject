@@ -1,0 +1,173 @@
+---
+title: "Qualitative Activity Recognition using Random Forest Prediction Model"
+author: "Juan Carlos Lagomacini"
+date: "20 de agosto de 2015"
+output: html_document
+---
+
+
+
+### Summary
+
+In this report a qualitative activity recognition of Weight Lifting Exercises is performed. From a large data set with observations from accelerometers installed on the belt, arm, and dumbell of 6 participants, a random forest is used to predict the classe of activity achieved for each participant at different moments when performing Unilateral Dumbbell Biceps Curl. This predictive model is used in a final test set to predict the class of the activity for each 20 observations of a specific user.
+
+### Dataset
+
+The training and test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Both data set consist of 160 different variables corresponding to exercise features. Information about the variables in the dataset can be find [here](http://groupware.les.inf.puc-rio.br/har).
+
+In the training set, the variable *classe* corresponds to the to the type of activity corresponding to a certain observation. This will be the variable to predict in the test set. Class A corresponds to an activity according to the specifications of the exercise; class B throwing the elbows to the front; class C lifting the dumbbell only halfway; class D lowering the dumbbell only halfway; and class E throwing the hips to the front. Here, the structure of the first 10 variables and the last one in the *training* and *testing* data is summarised:
+
+```{r cache = TRUE, echo = FALSE}
+library(doParallel)
+registerDoParallel(cores=2)
+setwd("/Users/lagomacini/Desktop/Coursera/curso8_MachineLearning/project")
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+TRAINING SET:
+```{r cache = TRUE, echo = FALSE}
+nms <- names(testing[,colSums(is.na(testing))<nrow(testing)])
+summary(training[c(1:15,160)])
+```
+TESTING SET:
+```{r cache = TRUE, echo = FALSE}
+summary(testing[c(1:15,160)])
+```
+
+
+Looking to the testing set the first 7 and *problem_id* variables correspond to meaningless variables to use for predictions. Moreover, looking through the whole testing dataset, there are different variables (columns) with only NAs. Therefore all those variables were not considered from the training set. In total only 60 are considered.
+
+```{r echo = FALSE, cache = T}
+nms <- names(testing[,colSums(is.na(testing))<nrow(testing)])
+nms <- nms[-grep("problem_id",nms)]
+```
+
+According to the variable *"new_window"* the observations corresponding to "yes" were remove from the training dataset, since they are not present in the testing set. These observations in the training dataset summarise the statistics of the features.
+
+```{r echo = FALSE, cache = T}
+df <- training[c(nms,"classe")]
+df <- df[df$new_window == "no",]
+```
+
+### Finding correlations
+Using the functions *nearZeroVar*, *findCorrelation* and *findLinearCombos* from the caret package the variability from the remaining dataset, the correlations between columns and the combinations between rows were estimated. No linear combinations between rows and zero variability in the variables were found. However, a correlation of 90% (cut.off = 0.9) were found in the following variables and then were drop off from the training set too:
+
+```{r echo = FALSE, cache = TRUE}
+library(caret)
+df2 <- df[8:59]
+corr <- cor(df2)
+diag(corr) <- 0
+m <-which(corr > 0.9, arr.ind=T)
+hcor <- findCorrelation(corr, cutoff=0.9)
+#lcomb <- findLinearCombos(df2)$remove  # (no combinations)
+#nzv <- nearZeroVar(df2) # (no variability)
+ind <- NULL
+n <- names(df2[hcor])
+for (i in 1:length(n)){
+                ind[i] <- which(names(df)==n[i])
+}
+names(df[ind])
+```
+
+Summarising, a training data frame of 19216 and 46 variables was used for the prediction model.
+
+```{r cache = TRUE}
+dim(df[-c(1:7,ind)])
+```
+
+### Plotting 
+
+Using the *featurePlot* function from *caret* package, a plot of variables were used to see some correlation between them. The following plot shows three variables which are the most important when applying the variable importance function (*varImp* of caret):
+```{r cache = TRUE, echo = FALSE, fig.align="center", fig.width=8, fig.height=8}
+library(caret)
+library(AppliedPredictiveModeling)
+i <- grep("yaw_belt|magnet_dumbbell_z|pitch_forearm", names(df) )  
+transparentTheme(trans = .2)
+featurePlot(x = df[i],
+            y = df$classe,
+            plot = "pairs",
+            ## Add a key at the top
+            auto.key = list(columns = length(1:5)))
+```
+
+It is observed some uncorrelated regions in the plot. It indicates that a clasification algorithm it is possible using the training set. Let see also a density plot of those variables:
+
+```{r echo = FALSE, cache = TRUE, fig.align="center", fig.width=10}
+transparentTheme(trans = .9)
+featurePlot(x = df[i],
+            y = df$classe,
+            plot = "density",
+            ## Pass in options to xyplot() to 
+            ## make it prettier
+            scales = list(x = list(relation="free"),
+                         y = list(relation="free")),
+            adjust = 1.5,
+            #pch = "|",
+            layout = c(3, 1),
+            auto.key = list(columns = 5))
+```
+
+
+### Prediction model for classe variable
+Although it is not necessary for random forest algorithm to perform *cross validation*, a 70% of the training dataset was used for the training and 30% for testing using the *createDataPartition* function (caret). A *K-fold Cross validation* is not necessary for such a large dataset.
+
+```{r echo = FALSE, cache = TRUE}
+# Partition of df
+set.seed(123)
+Intrain <- createDataPartition(y = df$classe, p = 0.7, list = FALSE )
+dfTrain <- df[Intrain,]
+dfTest <- df[-Intrain,]
+
+```
+
+The *train* function (caret) was used to get a random forest model for prediction. Its default parameters were changed to reduce the calculation time. The number of forest built was 5, the number of trees per forest 10. It means a total of 50 trees with three samples with replacement from the 70% training set. In each split of the trees, 10 variables were bootstrap for tuning. It was made changing *mtry* parameter in the trainControl argument. Here is the summary of the obtained model. 
+
+```{r echo = FALSE, cache = TRUE}
+# MODEL: fitting with Ramdom forest . 
+set.seed(1234)
+        mtryVal <-10
+        trcl <- trainControl(number = 5)
+        modelfit <- train(classe ~., method = "rf", 
+                          trControl = trcl, 
+                          tuneGrid = data.frame(.mtry = mtryVal),
+                          data = dfTrain[-c(1:7, ind)], 
+                          ntree = 10,
+                          prox = TRUE)
+modelfit        
+```
+
+The model shows a 98% of accuracy (out-of-bag error). 
+The time in seconds to built the model is summarised in the next table:
+ 
+ 
+user  | system  | elapsed  
+------------- | ------------- | -------------
+96.080  | 10.708  | 63.100
+
+
+The following results show the summary of cross validation for the 30% testing set showing a 99% of accuracy:
+
+```{r echo = FALSE, cache = TRUE}
+# prediction and confusion matrix
+pred <- predict(modelfit,dfTest)
+confusionMatrix(pred, dfTest$classe) 
+```
+
+### Prediction for testing dataset.
+The previous *Random Forest* model was used for activity recognition of 20 observations, each belonging to a specific user with a given features. These are the results:
+
+```{r echo = FALSE, cache = TRUE}
+predSub <- data.frame(User = testing$user_name, prediction= as.character(predict(modelfit, testing)))
+predSub
+```
+
+
+
+
+
+
