@@ -82,7 +82,8 @@ dim(df[-c(1:7,ind)])
 
 ### Plotting 
 
-Using the *featurePlot* function from *caret* package, a plot of variables were used to see some correlation between them. The following plot shows three variables which are the most important when applying the variable importance function (*varImp* of caret):
+Using the *featurePlot* function from *caret* package, a plot of variables were used to see some correlation between them. The following plot shows three variables to better see some relationship between variables.
+
 ```{r cache = TRUE, echo = FALSE, fig.align="center", fig.width=8, fig.height=8}
 library(caret)
 library(AppliedPredictiveModeling)
@@ -95,7 +96,7 @@ featurePlot(x = df[i],
             auto.key = list(columns = length(1:5)))
 ```
 
-It is observed some uncorrelated regions in the plot. It indicates that a clasification algorithm it is possible using the training set. Let see also a density plot of those variables:
+It is observed some independent regions in the plot. It indicates that a clasification algorithm it is possible using the training set. Let see also a density plot of those variables:
 
 ```{r echo = FALSE, cache = TRUE, fig.align="center", fig.width=10}
 transparentTheme(trans = .9)
